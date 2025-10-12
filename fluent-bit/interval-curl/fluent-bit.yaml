@@ -1,0 +1,56 @@
+service:
+  flush: 5
+  daemon: off
+  log_level: debug
+
+pipeline:
+  inputs:
+    - name: http
+      host: ${FLB_HTTP_HOST}
+      port: ${FLB_HTTP_PORT}
+      tag: ${FLB_HTTP_TAG}
+
+  filters:
+    # input 전체를 data 필드로 감싸기
+    - name: nest
+      match: ${FLB_HTTP_TAG}
+      operation: nest
+      wildcard: "*"           # 모든 필드
+      nest_under: data        # data 필드로 감싸기
+
+    # utc 필드 추가
+    - name: lua
+      match: ${FLB_HTTP_TAG}
+      script: /custom/scripts/set_parameters.lua
+      call: add_utc
+
+    # 파일명용 tag 필트 추가
+    - name: lua
+      match: ${FLB_HTTP_TAG}
+      script: /custom/scripts/set_parameters.lua
+      call: add_tag
+
+    # 파일명용 tag 적용
+    - name: rewrite_tag
+      match: ${FLB_HTTP_TAG}
+      rule: $tag  ^(.*)$  $tag.log  false
+      emitter_name: re_emitted
+
+    # 필드 정리
+    - name: modify
+      match: "*.log"
+      remove: tag
+      move_to_start: utc
+      move_to_end: data
+
+  outputs:
+    #    - name: stdout
+    #      match: '*'
+    #    - name: kafka
+    #      match: "*"
+    #      brokers: localhost:9092
+    #      topics: my-topic
+    - name: file
+      match: "*"
+      path: /custom/data/
+      format: plain

@@ -1,0 +1,27 @@
+services:
+  http-poller:
+    image: curlimages/curl:latest
+    volumes:
+      - ./http-poller.sh:/http-poller.sh
+    depends_on:
+      - fluent-bit
+    environment:
+      - SOURCE_URL
+      - DEST_URL
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: sh /http-poller.sh
+
+  fluent-bit:
+    image: fluent/fluent-bit:4.1-debug # with terminal support
+    volumes:
+      - ./fluent-bit.yaml:/fluent-bit/etc/fluent-bit.yaml
+      - ./data:/custom/data
+      - ./scripts:/custom/scripts
+    ports:
+      - "9880:9880"
+    environment:
+      - FLB_HTTP_HOST
+      - FLB_HTTP_PORT
+      - FLB_HTTP_TAG
+    command: /fluent-bit/bin/fluent-bit -c /fluent-bit/etc/fluent-bit.yaml
