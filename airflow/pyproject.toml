@@ -1,11 +1,7 @@
 [project]
-name = "airflow"
+name = "airflow-project"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
-    # Airflow must be installed with constraints for compatibility.
-    # This entry is for visibility; run install_library.sh to install with constraints.
     "apache-airflow==3.1.0",
-    "apache-airflow-providers-amazon>=9.14.0",
 ]
