@@ -1,0 +1,69 @@
+networks:
+  kafka-net: # External kafka network
+    external: true
+    name: kafka-net
+
+services:
+  connect-group-0:
+    image: confluentinc/cp-kafka-connect:${KAFKA_VERSION}
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: connect-group-0
+      CONNECT_CONFIG_STORAGE_TOPIC: __connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: ${NUMBER_OF_KAFKA_BROKERS}
+      CONNECT_OFFSET_STORAGE_TOPIC: __connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: ${NUMBER_OF_KAFKA_BROKERS}
+      CONNECT_STATUS_STORAGE_TOPIC: __connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: ${NUMBER_OF_KAFKA_BROKERS}
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/data/connect-jars
+    volumes:
+      - ./data:/data
+      - ./config:/data/config:ro
+      - ./test.txt:/data/test.txt:ro
+    networks:
+      - kafka-net
+    command:
+      - bash
+      - -c
+      - |
+        echo "Launching Kafka Connect worker"
+        /etc/confluent/docker/run &
+        echo "Waiting for Kafka Connect to start listening on localhost ⏳"
+        while : ; do
+          curl_status=$$(curl -s -o /dev/null -w %{http_code} http://localhost:8083/connectors)
+          echo -e $$(date) " Kafka Connect listener HTTP state: " $$curl_status " (waiting for 200)"
+          if [ $$curl_status -eq 200 ] ; then break; fi
+          sleep 5
+        done
+        echo "--\nBulk creating connectors from /data/config/*.json"
+        shopt -s nullglob
+        files=(/data/config/*.json)
+        if [ $${#files[@]} -eq 0 ]; then
+          echo "No JSON files found in /data/config"; sleep infinity
+        fi
+        for f in "${files[@]}"; do
+          echo -e "\n+> Processing file: $$f"
+          name=$$(basename "$$f" .json)
+          echo "+> PUT connector $$name using $$f"
+          resp=$$(curl -s -w "\nHTTP_CODE:%{http_code}" -X PUT -H "Content-Type:application/json" \
+            http://localhost:8083/connectors/$$name/config -d @"$$f")
+          http_code=$$(echo "$$resp" | awk -F: '/HTTP_CODE/ {print $$2}')
+          body=$$(echo "$$resp" | sed '/HTTP_CODE:/d')
+          echo "   HTTP $$http_code"; echo "   Body: $$body"
+          case "$$http_code" in
+            201|200) echo "   -> SUCCESS" ;;
+            409) echo "   -> CONFLICT (already exists?)" ;;
+            422) echo "   -> VALIDATION ERROR" ;;
+            500) echo "   -> SERVER ERROR (check connector.class / plugin)" ;;
+            *) echo "   -> STATUS $$http_code" ;;
+          esac
+        done
+        echo "--\nConnector list:"; curl -s http://localhost:8083/connectors | jq '.' || curl -s http://localhost:8083/connectors
+        sleep infinity
+
